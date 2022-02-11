@@ -2,7 +2,7 @@
 > Upgrade from my dumbcache
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/princjef/gomarkdoc.svg)](https://pkg.go.dev/github.com/teng231/smartcache)
-
+[![Go](https://github.com/teng231/smartcache/actions/workflows/go.yml/badge.svg?branch=master)](https://github.com/teng231/smartcache/actions/workflows/go.yml)
 
 Hope it can be tool to help your works.
 
