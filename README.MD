@@ -1,6 +1,10 @@
 # SmartCache
 > Upgrade from my dumbcache
-Hope it can be tool to help your works
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/princjef/gomarkdoc.svg)](https://pkg.go.dev/github.com/teng231/smartcache)
+
+
+Hope it can be tool to help your works.
 
 ### Installation
 
