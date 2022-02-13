@@ -26,7 +26,9 @@ flow like that:
 ```
 
 * When start app you create engine. Engine define structure of collection.
-* Engine privider `select` create session to access and query data in collection.
+* Engine provider `select` to access module cache.
+* Session process cache or set, get value to cache, from local module or remote module
+* Collection local cache module
 
 ### Example
 You can see full example here: [Example](https://github.com/teng231/smartcache/tree/master/example)
