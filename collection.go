@@ -10,8 +10,6 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
-type FuncSetter func(interface{}) (interface{}, error)
-
 /**
 Collection is define a structure of data
 Save data inmem here
@@ -30,10 +28,11 @@ type ICollection interface {
 	Upsert(ctx context.Context, key, value interface{}) error
 	Upserts(ctx context.Context, in ...*CollectionKV) (int, error)
 	Delete(ctx context.Context, key interface{}) error
-	Get(ctx context.Context, key interface{}, setters ...FuncSetter) (interface{}, bool)
-	Iter(ctx context.Context, key interface{}, filtering func(item interface{}, index int), setters ...FuncSetter)
+	Get(ctx context.Context, key interface{}) (interface{}, bool)
+	Iter(ctx context.Context, key interface{}, filtering func(item interface{}, index int))
 	Key() string
 	Len() int
+	IsKeyExisted(key interface{}) bool
 	GC()
 }
 
@@ -75,6 +74,20 @@ func CreateCollection(config *CollectionConfig) (*Collection, error) {
 		}()
 	}
 	return s, nil
+}
+
+func (c *Collection) IsKeyExisted(key interface{}) bool {
+	has := c.data.Contains(key)
+	if !has {
+		return has
+	}
+	value, _ := c.data.Get(key)
+	colValue := value.(*CollectionValue)
+	if colValue.Created+int64(c.expireDuration) < time.Now().Unix() {
+		c.data.Remove(key)
+		return false
+	}
+	return true
 }
 
 func (c *Collection) Key() string {
@@ -140,64 +153,23 @@ func (c *Collection) Delete(ctx context.Context, key interface{}) error {
 	return errors.New(E_remove_problem)
 }
 
-func (c *Collection) Get(ctx context.Context, key interface{}, setters ...FuncSetter) (interface{}, bool) {
-	value, has := c.data.Get(key)
-	if has {
-		colValue := value.(*CollectionValue)
-		if colValue.Created+int64(c.expireDuration) < time.Now().Unix() {
-			c.data.Remove(key)
-			return nil, false
-		}
-		return colValue.Value, has
-	}
-	if len(setters) == 0 {
-		return nil, has
-	}
-	// get condition from value of context
-	var condition interface{} = key
-	if val := ctx.Value("condition"); val != nil {
-		condition = val
-	}
-	for _, f := range setters {
-		val, err := f(condition)
-		if err != nil {
-			continue
-		}
-		if val != nil {
-			if err := c.Upsert(ctx, key, val); err != nil {
-				continue
-			}
-		}
-		return val, true
-	}
-	return nil, has
-}
-
-func (c *Collection) Iter(ctx context.Context, key interface{}, filtering func(item interface{}, index int), setters ...FuncSetter) {
+func (c *Collection) Get(ctx context.Context, key interface{}) (interface{}, bool) {
 	value, has := c.data.Get(key)
 	if !has {
-		if len(setters) == 0 {
-			return
-		}
-		isok := false
-		for _, f := range setters {
-			val, err := f(key)
-			if err != nil {
-				continue
-			}
-			if val != nil {
-				if err := c.Upsert(ctx, key, val); err != nil {
-					continue
-				}
-			}
-			isok = true
-			value = val
-			break
-		}
-		if !isok {
-			return
-		}
+		return nil, has
+	}
+	colValue := value.(*CollectionValue)
+	if colValue.Created+int64(c.expireDuration) < time.Now().Unix() {
+		c.data.Remove(key)
+		return nil, false
+	}
+	return colValue.Value, has
+}
 
+func (c *Collection) Iter(ctx context.Context, key interface{}, filtering func(item interface{}, index int)) {
+	value, has := c.data.Get(key)
+	if !has {
+		return
 	}
 	colValue := value.(*CollectionValue)
 	if colValue.Created+int64(c.expireDuration) < time.Now().Unix() {

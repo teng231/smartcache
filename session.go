@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"reflect"
 )
+
+type GetterFn func(interface{}) (interface{}, error)
+
+type SetterFn func(interface{}, interface{}) error
 
 type Session struct {
 	ctx        context.Context
@@ -22,12 +27,11 @@ type SessionConfig struct {
 }
 
 type ISession interface {
-	Filter(iter func(interface{}, int) bool, setters ...FuncSetter) ISession
-	Get(iter func(interface{}, int) bool, setters ...FuncSetter) error
+	Filter(iter func(interface{}, int) bool, getterFns ...GetterFn) ISession
+	Get(iter func(interface{}, int) bool, getterFns ...GetterFn) error
 	Exec(outptr interface{}) error
-	Upsert(value interface{}) error
-	Upserts(in ...*CollectionKV) (int, error)
-	Delete(key interface{}) error
+	Upsert(key, value interface{}, setterFns ...SetterFn) error
+	Delete(key interface{}, setterFns ...SetterFn) error
 	Close()
 }
 
@@ -47,13 +51,35 @@ func (s *Session) Close() {
 	s.err = nil
 	s.ctx = nil
 }
+func (s *Session) KeyBulder(sim interface{}) interface{} {
+	return fmt.Sprintf("%v.%v", s.collection.Key(), sim)
+}
 
-func (s *Session) Filter(key interface{}, iter func(interface{}, int) bool, setters ...FuncSetter) *Session {
+func (s *Session) Filter(key interface{}, iter func(interface{}, int) bool, getterFns ...GetterFn) *Session {
 	if s.err != nil {
 		return s
 	}
+	if !s.collection.IsKeyExisted(key) {
+		isok := false
+		for _, f := range getterFns {
+			val, err := f(s.KeyBulder(key))
+			if err != nil {
+				continue
+			}
+			if val != nil {
+				if err := s.collection.Upsert(s.ctx, key, val); err != nil {
+					continue
+				}
+			}
+			isok = true
+			break
+		}
+		if !isok {
+			return s
+		}
+	}
 	if iter == nil {
-		val, ok := s.collection.Get(s.ctx, key, setters...)
+		val, ok := s.collection.Get(s.ctx, key)
 		if ok {
 			s.out = val
 		}
@@ -64,17 +90,36 @@ func (s *Session) Filter(key interface{}, iter func(interface{}, int) bool, sett
 		if ok := iter(data, index); ok {
 			out = append(out, data)
 		}
-	}, setters...)
+	})
 	s.out = out
 	return s
 }
 
-func (s *Session) Get(key interface{}, iter func(interface{}, int) bool, setters ...FuncSetter) *Session {
+func (s *Session) Get(key interface{}, iter func(interface{}, int) bool, getterFns ...GetterFn) *Session {
 	if s.err != nil {
 		return s
 	}
+	if !s.collection.IsKeyExisted(key) {
+		isok := false
+		for _, f := range getterFns {
+			val, err := f(s.KeyBulder(key))
+			if err != nil {
+				continue
+			}
+			if val != nil {
+				if err := s.collection.Upsert(s.ctx, key, val); err != nil {
+					continue
+				}
+			}
+			isok = true
+			break
+		}
+		if !isok {
+			return s
+		}
+	}
 	if iter == nil {
-		val, ok := s.collection.Get(s.ctx, key, setters...)
+		val, ok := s.collection.Get(s.ctx, key)
 		if ok {
 			s.out = val
 		}
@@ -86,7 +131,7 @@ func (s *Session) Get(key interface{}, iter func(interface{}, int) bool, setters
 			s.out = data
 			isdone = true
 		}
-	}, setters...)
+	})
 	return s
 }
 
@@ -110,7 +155,7 @@ func (s *Session) Exec(outptr interface{}) (bool, error) {
 			return false, err
 		}
 		if err := json.Unmarshal(out, outptr); err != nil {
-			log.Print(err)
+			log.Print("filter need a slice to: ", err)
 			return false, err
 		}
 		return true, nil
@@ -120,14 +165,44 @@ func (s *Session) Exec(outptr interface{}) (bool, error) {
 	return true, nil
 }
 
-func (s *Session) Upsert(key interface{}, value interface{}) error {
-	return s.collection.Upsert(s.ctx, key, value)
+func (s *Session) Upsert(key interface{}, value interface{}, setterFns ...SetterFn) error {
+	err := s.collection.Upsert(s.ctx, key, value)
+	if len(setterFns) == 0 {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	errstr := ""
+	for _, f := range setterFns {
+		err := f(s.KeyBulder(key), value)
+		if err != nil {
+			errstr += err.Error()
+		}
+	}
+	if errstr != "" {
+		return errors.New(errstr)
+	}
+	return nil
 }
 
-func (s *Session) Upserts(kvs ...*CollectionKV) (int, error) {
-	return s.collection.Upserts(s.ctx, kvs...)
-}
-
-func (s *Session) Delete(key interface{}) error {
-	return s.collection.Delete(s.ctx, key)
+func (s *Session) Delete(key interface{}, setterFns ...SetterFn) error {
+	err := s.collection.Delete(s.ctx, key)
+	if len(setterFns) == 0 {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	errstr := ""
+	for _, f := range setterFns {
+		err := f(s.KeyBulder(key), nil)
+		if err != nil {
+			errstr += err.Error()
+		}
+	}
+	if errstr != "" {
+		return errors.New(errstr)
+	}
+	return nil
 }

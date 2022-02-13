@@ -59,7 +59,7 @@ func TestCollectionRun(t *testing.T) {
 }
 func TestCollectionRunWithGCInterval(t *testing.T) {
 	testcaseCollections := map[string]*CollectionConfig{
-		"col2": {Key: "col2", Capacity: 100, ExpireDuration: 2 * time.Second, GCInterval: 5 * time.Second},
+		"col2": {Key: "col2", Capacity: 100, ExpireDuration: 2 * time.Second, GCInterval: 3 * time.Second},
 	}
 	collections := map[string]*Collection{}
 
@@ -81,7 +81,7 @@ func TestCollectionRunWithGCInterval(t *testing.T) {
 		t.Fail()
 	}
 	log.Print("wait for GC run")
-	time.Sleep(7 * time.Second)
+	time.Sleep(4 * time.Second)
 
 	if col2.Len() != 0 {
 		log.Print("err, len 2")

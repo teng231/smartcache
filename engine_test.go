@@ -110,8 +110,8 @@ func TestFeatureEngine(t *testing.T) {
 	hit, _ = e.Select(context.TODO(), "normal").Filter("key5", func(data interface{}, index int) bool {
 		return data.(int) >= 2
 	}).Exec(&sliceOut2)
-	log.Print(sliceOut2)
-	if !hit {
+	log.Print(hit, sliceOut2)
+	if hit {
 		log.Print("fail ", sliceOut2)
 		t.Fail()
 	}

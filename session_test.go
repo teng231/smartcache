@@ -2,6 +2,7 @@ package smartcache
 
 import (
 	"context"
+	"errors"
 	"log"
 	"reflect"
 	"testing"
@@ -12,7 +13,7 @@ type D struct {
 	a string
 }
 
-func TestSessionRun(t *testing.T) {
+func TestSessionRead(t *testing.T) {
 	// create session
 	testcaseOfCollection := map[string]interface{}{
 		// "key1": "hello",
@@ -50,7 +51,7 @@ func TestSessionRun(t *testing.T) {
 		return val.(int) == 3
 	}).Exec(&out1)
 	log.Print(out1, hit)
-	if !hit {
+	if !hit || out1 != 3 {
 		t.Fail()
 	}
 
@@ -68,7 +69,7 @@ func TestSessionRun(t *testing.T) {
 		return val.(*D).a == "a"
 	}).Exec(out3)
 	log.Print(out3, hit)
-	if !hit {
+	if !hit || out3.a != "a" {
 		t.Fail()
 	}
 
@@ -81,6 +82,135 @@ func TestSessionRun(t *testing.T) {
 		t.Fail()
 	}
 
+	var out5 int
+	hit, _ = s.Get("key5", func(val interface{}, index int) bool {
+		return val.(int) == 5
+	}, func(i interface{}) (interface{}, error) {
+		if i.(string) == "col2.key5" {
+			return []int{1, 6, 5, 7}, nil
+		}
+		return nil, errors.New("nothing")
+	}).Exec(&out5)
+	log.Print(out5, hit)
+	if !hit || out5 != 5 {
+		t.Fail()
+	}
+
+	var out6 int
+	hit, _ = s.Get("key6", func(val interface{}, index int) bool {
+		return val.(int) == 4
+	}, func(i interface{}) (interface{}, error) {
+		if i.(string) == "col2.key5" {
+			return []int{1, 6, 5, 7}, nil
+		}
+		return nil, errors.New("nothing")
+	}).Exec(&out6)
+	log.Print(out6, hit)
+	if hit || out6 == 4 {
+		t.Fail()
+	}
+
+}
+
+func TestSessionRW(t *testing.T) {
+	// create session
+	testcaseOfCollection := map[string]interface{}{
+		// "key1": "hello",
+		// "key2": map[string]int{"x1": 1, "x2": 2},
+		"key3": []int{1, 2, 3, 4},
+		"key4": []*D{{"a"}, {"b"}},
+	}
+	testcaseCollections := map[string]*CollectionConfig{
+		"col2": {Key: "col2", Capacity: 100, ExpireDuration: 2 * time.Second, GCInterval: 5 * time.Second},
+	}
+	collections := map[string]*Collection{}
+
+	for k, config := range testcaseCollections {
+		col, err := CreateCollection(config)
+		if err != nil {
+			log.Print(err)
+			t.Fail()
+		}
+		collections[k] = col
+	}
+	col2 := collections["col2"]
+	for k, val := range testcaseOfCollection {
+		if err := col2.Upsert(context.TODO(), k, val); err != nil {
+			log.Print(err)
+			t.Fail()
+		}
+	}
+
+	s := createSession(&SessionConfig{
+		collection: col2,
+	})
+
+	var out5 int
+	setToRedis := func(k, val interface{}) error {
+		log.Print(k, val)
+		return nil
+	}
+	err := s.Upsert("key5", 2, setToRedis)
+	if err != nil {
+		t.Fail()
+	}
+	hit, _ := s.Get("key5", nil).Exec(&out5)
+	log.Print(hit, out5)
+	if out5 != 2 {
+		t.Fail()
+	}
+
+	var out6 []int
+	err = s.Upsert("key6", []int{1, 2, 3, 4, 7}, setToRedis)
+	if err != nil {
+		t.Fail()
+	}
+	hit, _ = s.Filter("key6", func(val interface{}, index int) bool {
+		return val.(int) > 3
+	}).Exec(&out6)
+	log.Print(hit, out6)
+	if len(out6) != 2 {
+		t.Fail()
+	}
+
+	var out7 int
+	err = s.Upsert("key7", []int{1, 2, 3, 4, 7}, setToRedis)
+	if err != nil {
+		t.Fail()
+	}
+	hit, _ = s.Get("key7", func(val interface{}, index int) bool {
+		return val.(int) > 3
+	}).Exec(&out7)
+	log.Print(hit, out7)
+	if out7 != 4 {
+		t.Fail()
+	}
+
+	var out8 int
+	err = s.Upsert("key8", 9, setToRedis)
+	if err != nil {
+		t.Fail()
+	}
+	hit, _ = s.Filter("key8", func(val interface{}, index int) bool {
+		return val.(int) > 3
+	}).Exec(&out8)
+	log.Print(hit, out8)
+	if out8 == 0 && hit {
+		t.Fail()
+	}
+
+	var out9 int
+	err = s.Upsert("key9", 9)
+	if err != nil {
+		t.Fail()
+	}
+	hit, _ = s.Get("key9", func(val interface{}, index int) bool {
+		return val.(int) >= 9
+	}).Exec(&out9)
+	log.Print(hit, out9)
+	if out9 == 9 && hit {
+		t.Fail()
+	}
 }
 
 func x(ptr interface{}, key string) bool {
